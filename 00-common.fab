@@ -1,0 +1,6 @@
+from fabric.api import run , env
+
+env.use_ssh_config = True
+
+def df():
+   run('df -h')
