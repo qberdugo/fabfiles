@@ -2,16 +2,15 @@
 
 from fabric.api import run , env, get, local
 from StringIO import StringIO
-import re
+import re, shlex
 
 env.use_ssh_config = True
 
 #TODO : make this an external file
-users = ['quentin', 'robm', 'farah', 'christoph', 'benjamin', 'giorgio', 'marco','nagib','sertan'] 
+users = ['quentin', 'robm', 'farah', 'christoph', 'benjamin', 'giorgio', 'marco','nagib','sertan','sudo'] 
 
 def get_local_passwd():
     fd = open('/etc/passwd','r')
-    #[ line for line in content if line.split(':')[0] in users ]
     return { line.split(':')[0]:line  for line in fd  }
 
 
@@ -19,20 +18,27 @@ def get_remote_passwd():
     fd = StringIO()
     get('/etc/passwd', fd)
     remote_lines = fd.getvalue().split('\n')
-    #[ line for line in content if line.split(':')[0] in users ]
     return { line.split(':')[0]:line  for line in remote_lines if line.split(':')[0] in users }
+
 
 def get_local_shadow():
     fd = open('/etc/shadow','r')
-    #[ line for line in content if line.split(':')[0] in users ]
     return { line.split(':')[0]:line  for line in fd  }
-
 
 def get_remote_shadow():
     fd = StringIO()
     get('/etc/shadow', fd, use_sudo=True)
     remote_lines = fd.getvalue().split('\n')
-    #[ line for line in content if line.split(':')[0] in users ]
+    return { line.split(':')[0]:line  for line in remote_lines if line.split(':')[0] in users }
+
+def get_local_groups():
+    fd = open('/etc/group','r')
+    return { line.split(':')[0]:line  for line in fd  }
+
+def get_remote_groups():
+    fd = StringIO()
+    get('/etc/group', fd, use_sudo=True)
+    remote_lines = fd.getvalue().split('\n')
     return { line.split(':')[0]:line  for line in remote_lines if line.split(':')[0] in users }
 
 def print_add_passwd():
@@ -45,7 +51,7 @@ def print_add_passwd():
     print 'Found local conflicts: %s' % conflicts.keys()
     print 'you can paste the commands below to add the users:'
     for key, value in missing.iteritems():
-        print 'echo "%s" >> /etc/passwd' % value
+        print 'sudo echo "%s" >> /etc/passwd' % value
  
 def print_add_shadow():
     local = get_local_shadow()
@@ -55,9 +61,23 @@ def print_add_shadow():
 
     print 'Found missing remote users: %s' % missing.keys()
     print 'Found local conflicts: %s' % conflicts.keys()
+    print 'you will need to cat that in you /etc/shadow :'
+    for key, value in missing.iteritems():
+        print '%s' % value
+
+#TODO : manage sudo group
+def print_add_groups():
+    local = get_local_groups()
+    remote = get_remote_groups()
+    missing = { item:remote[item] for item in remote.keys() if item not in local.keys() }
+    conflicts = { item:remote[item] for item in remote.keys() if item in local.keys() }
+
+    print 'Found missing remote groups: %s' % missing.keys()
+    print 'Found local conflicts: %s' % conflicts.keys()
     print 'you can paste the commands below to add the users:'
     for key, value in missing.iteritems():
-        print 'echo "%s" >> /etc/shadow' % value
+        print 'sudo echo "%s" >> /etc/group' % value
+
 
 def get_remote_homes():
     return run('ls /home').split()
@@ -66,17 +86,18 @@ def get_remote_homes():
 def get_local_homes():
     return local('ls /home',capture=True).split()
 
-
-
-def print_home_import():
+def print_home_rsync():
     remote = get_remote_homes()
     local = get_local_homes()
     missing  =  list( set(remote).intersection(set(users)).difference(set(local)) )
     print 'Found missing remote users: %s' % missing
     print 'you can paste the commands below to add the users:'
+    print 'this is likely to require adding this in your sudoers file: <user> ALL= NOPASSWD:/usr/bin/rsync'
     for item in missing :
         print 'rsync -av --progress -e "ssh -p {0}" --rsync-path="sudo rsync" {1}@{2}:/home/{3} /home'.format(env.port, env.user,  env.host, item)
 
 def print_user_import():
     print_add_passwd()
+    print_add_groups()
     print_add_shadow()
+    print_home_rsync()
